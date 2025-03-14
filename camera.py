@@ -10,6 +10,7 @@ from threading import Thread
 from threading import Event
 import os
 import threading
+import keyboard
 
 camera_settings = sl.VIDEO_SETTINGS.BRIGHTNESS
 str_camera_settings = "BRIGHTNESS"
@@ -21,7 +22,7 @@ origin_rect = (-1, -1)
 
 
 class Camera(threading.Thread):
-    def __init__(self, ip, port, save_dir):
+    def __init__(self, ip, port, save_dir=""):
         super().__init__()
         # 根据ip和port获取摄像头
         self.ip = ip
@@ -92,77 +93,86 @@ class Camera(threading.Thread):
                                          frameSize=(frame_width, frame_height))  # 写入视频
         self.left_count = 0
         self.right_count = 0
+        self.record_thread = RecordThread(self)
+        self.get_cam_img_thread = GetCamImgThread(self)
+        self.flag = True
 
     def run(self):
-        pass
+        # 开启2个子线程获取图像和录制视频
+        print("------------------run-------------")
+        self.get_cam_img_thread.start()
+        print("------------------ get cam img run---------------")
+        self.record_thread.start()
+        print("------------------recording run---------------")
+        while self.flag:
+            pass
 
     def __del__(self):
         pass
 
     def record_video(self):
-        while self.flag:
-            if len(self.left_img_stack) > 0:
-                self.left_out.write(self.left_img_stack[0])
-                self.left_img_stack.pop(0)
-            if len(self.right_img_stack) > 0:
-                self.right_out.write(self.right_img_stack[0])
-                self.right_img_stack.pop(0)
-        self.left_out.release()
-        self.right_out.release()
+        if len(self.left_img_stack) > 0:
+            self.left_out.write(self.left_img_stack[0])
+            self.left_img_stack.pop(0)
+        if len(self.right_img_stack) > 0:
+            self.right_out.write(self.right_img_stack[0])
+            self.right_img_stack.pop(0)
+
+    def end_record(self):
+        self.record_thread.flag = False
+        self.get_cam_img_thread.flag = False
+        self.record_thread.join()
+        self.get_cam_img_thread.join()
+        self.flag = False
 
     def get_cam_img(self):
         # left camera
-        while self.flag:
-            err = self.left_cam.grab(self.runtime)  # Check that a new image is successfully acquired
-            if err == sl.ERROR_CODE.SUCCESS:
-                self.left_cam.retrieve_image(self.left_mat, sl.VIEW.LEFT)  # Retrieve left image
-                left_cvImage = self.left_mat.get_data()
-                if (not selection_rect.is_empty() and selection_rect.is_contained(
-                        sl.Rect(0, 0, left_cvImage.shape[1], left_cvImage.shape[0]))):
-                    cv2.rectangle(left_cvImage, (selection_rect.x, selection_rect.y),
-                                  (selection_rect.width + selection_rect.x, selection_rect.height + selection_rect.y),
-                                  (220, 180, 20), 2)
-                cv2.putText(left_cvImage,
-                            "Resolution:{}x{}".format(self.left_cam_info.camera_configuration.resolution.width,
-                                                      self.left_cam_info.camera_configuration.resolution.height),
-                            (0, 1 * 24),
-                            cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
-                # cv2.putText(left_cvImage, "FPS:{}".format(left_fps), (0, 2 * 24),
-                #             cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
-                self.left_img_stack.append(left_cvImage)
-                cv2.imshow(self.left_win_name, left_cvImage)
-                self.left_out.write(left_cvImage)  # 写入帧
-                self.left_count += 1
-            else:
-                print("Error during capture : ", err)
-                break
-            key = cv2.waitKey(5)
-            self.update_camera_settings(key, self.left_cam, self.runtime, self.left_mat)
-            # right camera
-            err = self.right_cam.grab(self.runtime)  # Check that a new image is successfully acquired
-            if err == sl.ERROR_CODE.SUCCESS:
-                self.right_cam.retrieve_image(self.right_mat, sl.VIEW.RIGHT)  # Retrieve left image
-                right_cvImage = self.right_mat.get_data()
-                if (not selection_rect.is_empty() and selection_rect.is_contained(
-                        sl.Rect(0, 0, right_cvImage.shape[1], right_cvImage.shape[0]))):
-                    cv2.rectangle(right_cvImage, (selection_rect.x, selection_rect.y),
-                                  (selection_rect.width + selection_rect.x, selection_rect.height + selection_rect.y),
-                                  (220, 180, 20), 2)
-                cv2.putText(right_cvImage,
-                            "Resolution:{}x{}".format(self.right_cam_info.camera_configuration.resolution.width,
-                                                      self.right_cam_info.camera_configuration.resolution.height),
-                            (0, 1 * 24),
-                            cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
-                # cv2.putText(right_cvImage, "FPS:{}".format(right_fps), (0, 2 * 24),
-                #             cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
-                self.right_img_stack.append(right_cvImage)
-                cv2.imshow(self.right_win_name, right_cvImage)
-                # right_count += 1
-            else:
-                print("Error during capture : ", err)
-                break
-            key = cv2.waitKey(5)
-            self.update_camera_settings(key, self.right_cam, self.runtime, self.right_mat)
+        print("start get cam img")
+        err = self.left_cam.grab(self.runtime)  # Check that a new image is successfully acquired
+        if err == sl.ERROR_CODE.SUCCESS:
+            self.left_cam.retrieve_image(self.left_mat, sl.VIEW.LEFT)  # Retrieve left image
+            left_cvImage = self.left_mat.get_data()
+            if (not selection_rect.is_empty() and selection_rect.is_contained(
+                    sl.Rect(0, 0, left_cvImage.shape[1], left_cvImage.shape[0]))):
+                cv2.rectangle(left_cvImage, (selection_rect.x, selection_rect.y),
+                              (selection_rect.width + selection_rect.x, selection_rect.height + selection_rect.y),
+                              (220, 180, 20), 2)
+            cv2.putText(left_cvImage,
+                        "Resolution:{}x{}".format(self.left_cam_info.camera_configuration.resolution.width,
+                                                  self.left_cam_info.camera_configuration.resolution.height),
+                        (0, 1 * 24),
+                        cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
+            # cv2.putText(left_cvImage, "FPS:{}".format(left_fps), (0, 2 * 24),
+            #             cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
+            self.left_img_stack.append(left_cvImage)
+            cv2.imshow(self.left_win_name, left_cvImage)
+            self.left_out.write(left_cvImage)  # 写入帧
+            self.left_count += 1
+        key = cv2.waitKey(5)
+        self.update_camera_settings(key, self.left_cam, self.runtime, self.left_mat)
+        # right camera
+        err = self.right_cam.grab(self.runtime)  # Check that a new image is successfully acquired
+        if err == sl.ERROR_CODE.SUCCESS:
+            self.right_cam.retrieve_image(self.right_mat, sl.VIEW.RIGHT)  # Retrieve left image
+            right_cvImage = self.right_mat.get_data()
+            if (not selection_rect.is_empty() and selection_rect.is_contained(
+                    sl.Rect(0, 0, right_cvImage.shape[1], right_cvImage.shape[0]))):
+                cv2.rectangle(right_cvImage, (selection_rect.x, selection_rect.y),
+                              (selection_rect.width + selection_rect.x, selection_rect.height + selection_rect.y),
+                              (220, 180, 20), 2)
+            cv2.putText(right_cvImage,
+                        "Resolution:{}x{}".format(self.right_cam_info.camera_configuration.resolution.width,
+                                                  self.right_cam_info.camera_configuration.resolution.height),
+                        (0, 1 * 24),
+                        cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
+            # cv2.putText(right_cvImage, "FPS:{}".format(right_fps), (0, 2 * 24),
+            #             cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 255), 2)
+            self.right_img_stack.append(right_cvImage)
+            cv2.imshow(self.right_win_name, right_cvImage)
+            # right_count += 1
+        key = cv2.waitKey(5)
+        self.update_camera_settings(key, self.right_cam, self.runtime, self.right_mat)
+        print("get a frame image")
 
     def print_camera_information(self, cam):
         cam_info = cam.get_camera_information()
@@ -276,22 +286,38 @@ class Camera(threading.Thread):
 
 
 class RecordThread(threading.Thread):
-    def __init__(self, cam):
+    def __init__(self, cam: Camera):
         super().__init__()
+        self.cam = cam
+        self.flag = True
 
     def run(self):
-        pass
+        while self.flag:
+            self.cam.record_video()
+        while len(self.cam.left_img_stack) > 0:
+
+            self.cam.left_out.write(self.cam.left_img_stack[0])
+            self.cam.left_img_stack.pop(0)
+        while len(self.cam.right_img_stack) > 0:
+            self.cam.right_out.write(self.cam.right_img_stack[0])
+            self.cam.right_img_stack.pop(0)
+
+        self.cam.left_out.release()
+        self.cam.right_out.release()
 
     def __del__(self):
         pass
 
 
 class GetCamImgThread(threading.Thread):
-    def __init__(self, cam):
+    def __init__(self, cam: Camera):
         super().__init__()
+        self.cam = cam
+        self.flag = True
 
     def run(self):
-        pass
+        while self.flag:
+            self.cam.get_cam_img()
 
     def __del__(self):
         pass
